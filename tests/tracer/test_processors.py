@@ -22,7 +22,7 @@ from ddtrace.internal.processor.endpoint_call_counter import EndpointCallCounter
 from ddtrace.internal.processor.trace import SpanAggregator
 from ddtrace.internal.processor.trace import SpanProcessor
 from ddtrace.internal.processor.trace import SpanSamplingProcessor
-from ddtrace.internal.processor.trace import SpanTelemetryProcessor
+from ddtrace.internal.processor.trace import TelemetryTraceProcessor
 from ddtrace.internal.processor.trace import TraceProcessor
 from ddtrace.internal.processor.trace import TraceTagsProcessor
 from ddtrace.internal.processor.truncator import DEFAULT_SERVICE_NAME
@@ -36,6 +36,7 @@ from ddtrace.internal.processor.truncator import NormalizeSpanProcessor
 from ddtrace.internal.processor.truncator import TruncateSpanProcessor
 from ddtrace.internal.sampling import SamplingMechanism
 from ddtrace.internal.sampling import SpanSamplingRule
+from ddtrace.opentracer.span import Span as OTSpan
 from tests.utils import DummyTracer
 from tests.utils import DummyWriter
 from tests.utils import override_global_config
@@ -377,14 +378,21 @@ def test_span_normalizator():
 
 def test_span_telemetry_metrics_processor():
     """Test that telemetry metrics are queued on span finish"""
-    tracer = DummyTracer()
-    assert any(isinstance(sp, SpanTelemetryProcessor) for sp in tracer._span_processors)
-
+    tp = TelemetryTraceProcessor()
     with mock.patch("ddtrace.internal.processor.trace.telemetry_metrics_writer._add_metric") as mock_tm:
-        span = tracer.trace("span")
-        mock_tm.assert_not_called()
-        span.finish()
-        mock_tm.assert_called_once_with("count", "tracers", "datadog.span_created", 1.0, {})
+        ddspan = Span("dd")
+        otspan = OTSpan(None, None, "ot")
+
+        spans = [ddspan] * 3 + [otspan._dd_span] * 5
+        processed_spans = tp.process_trace(spans)
+        assert processed_spans == spans
+
+    mock_tm.assert_has_calls(
+        [
+            mock.call("count", "tracers", "datadog.span_created", 3, {}),
+            mock.call("count", "tracers", "opentracing.span_created", 5, {}),
+        ]
+    )
 
 
 def test_single_span_sampling_processor():

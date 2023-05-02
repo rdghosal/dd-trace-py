@@ -2,6 +2,7 @@ import abc
 from collections import defaultdict
 import threading
 from typing import DefaultDict
+from typing import Dict
 from typing import Iterable
 from typing import List
 from typing import Optional
@@ -150,6 +151,25 @@ class TraceTagsProcessor(TraceProcessor):
 
 
 @attr.s
+class TelemetryTraceProcessor(TraceProcessor):
+    def process_trace(self, trace):
+        # type: (List[Span]) -> Optional[List[Span]]
+        if not trace:
+            return None
+
+        _span_api_metrics = defaultdict(int)  # type: Dict[str,int]
+        for span in trace:
+            span_api = span._get_ctx_item(SPAN_API_KEY) or SPAN_API_DATADOG
+            _span_api_metrics[span_api] += 1
+
+        for span_api, count in _span_api_metrics.items():
+            metric = "{}.span_created".format(span_api)
+            telemetry_metrics_writer.add_count_metric("tracers", metric, count)
+
+        return trace
+
+
+@attr.s
 class SpanAggregator(SpanProcessor):
     """Processor that aggregates spans together by trace_id and writes the
     spans to the provided writer when:
@@ -277,17 +297,3 @@ class SpanSamplingProcessor(SpanProcessor):
                     if config._trace_compute_stats:
                         span.set_metric(SAMPLING_PRIORITY_KEY, USER_KEEP)
                     break
-
-
-@attr.s
-class SpanTelemetryProcessor(SpanProcessor):
-    def on_span_start(self, span):
-        # type: (Span) -> None
-        pass
-
-    def on_span_finish(self, span):
-        # type: (Span) -> None
-        span_api = span._get_ctx_item(SPAN_API_KEY) or SPAN_API_DATADOG
-        metric = "{}.span_created".format(span_api)
-
-        telemetry_metrics_writer.add_count_metric("tracers", metric)
