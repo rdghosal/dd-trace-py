@@ -290,4 +290,4 @@ class SpanTelemetryProcessor(SpanProcessor):
         span_api = span._get_ctx_item(SPAN_API_KEY) or SPAN_API_DATADOG
         metric = "{}.span_created".format(span_api)
 
-        telemetry_metrics_writer.add_count_metric("tracer", metric)
+        telemetry_metrics_writer.add_count_metric("tracers", metric)

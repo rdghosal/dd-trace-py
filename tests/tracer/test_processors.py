@@ -384,7 +384,7 @@ def test_span_telemetry_metrics_processor():
         span = tracer.trace("span")
         mock_tm.assert_not_called()
         span.finish()
-        mock_tm.assert_called_once_with("count", "tracer", "datadog.span_created", 1.0, {})
+        mock_tm.assert_called_once_with("count", "tracers", "datadog.span_created", 1.0, {})
 
 
 def test_single_span_sampling_processor():

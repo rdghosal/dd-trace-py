@@ -215,4 +215,4 @@ def test_otel_span_creation_metrics(oteltracer):
 
     with mock.patch("ddtrace.internal.processor.trace.telemetry_metrics_writer._add_metric") as mock_tm:
         otelspan.end()
-        mock_tm.assert_called_once_with("count", "tracer", "otel.span_created", 1.0, {})
+        mock_tm.assert_called_once_with("count", "tracers", "otel.span_created", 1.0, {})
