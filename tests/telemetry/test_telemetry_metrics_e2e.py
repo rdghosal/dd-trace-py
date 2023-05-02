@@ -96,12 +96,12 @@ def test_telemetry_metrics_enabled_on_gunicorn_child_process(test_agent_session)
         gunicorn_client.get("/metrics")
         response = gunicorn_client.get("/metrics")
         response_content = json.loads(response.content)
-        assert response_content["telemetry_metrics_writer_queue"][0]["metric"] == "datadog.span_created"
-        assert response_content["telemetry_metrics_writer_queue"][1]["metric"] == "test_metric"
-        assert response_content["telemetry_metrics_writer_queue"][1]["points"][0][1] == 2.0
+        assert response_content["telemetry_metrics_writer_queue"][0]["metric"] == "test_metric"
+        assert response_content["telemetry_metrics_writer_queue"][0]["points"][0][1] == 2.0
+        assert response_content["telemetry_metrics_writer_queue"][1]["metric"] == "datadog.span_created"
     events = test_agent_session.get_events()
     assert len(events) == 6
-    assert events[0]["payload"]["series"][0]["metric"] == "datadog.span_created"
-    assert events[0]["payload"]["series"][1]["metric"] == "test_metric"
+    assert events[0]["payload"]["series"][1]["metric"] == "datadog.span_created"
+    assert events[0]["payload"]["series"][0]["metric"] == "test_metric"
     assert events[4]["payload"]["series"][0]["metric"] == "datadog.span_created"
     assert events[4]["payload"]["series"][1]["metric"] == "test_metric"

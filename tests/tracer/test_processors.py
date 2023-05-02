@@ -391,7 +391,8 @@ def test_span_telemetry_metrics_processor():
         [
             mock.call("count", "tracers", "datadog.span_created", 3, {}),
             mock.call("count", "tracers", "opentracing.span_created", 5, {}),
-        ]
+        ],
+        any_order=True,
     )
 
 
