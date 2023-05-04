@@ -142,8 +142,8 @@ def _default_span_processors_factory(
     trace_processors = []  # type: List[TraceProcessor]
     trace_processors += [TraceTagsProcessor()]
     trace_processors += [TraceSamplingProcessor(compute_stats_enabled)]
-    trace_processors += trace_filters
     trace_processors += [TelemetryTraceProcessor()]
+    trace_processors += trace_filters
 
     span_processors = []  # type: List[SpanProcessor]
     span_processors += [TopLevelSpanProcessor()]
