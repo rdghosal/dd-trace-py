@@ -10,6 +10,7 @@ from ..trace_utils import unwrap as _u
 from .client_interceptor import create_client_interceptor
 from .client_interceptor import intercept_channel
 from .server_interceptor import create_server_interceptor
+from ddtrace.internal.schema import schematize_service_name
 
 
 try:
@@ -31,11 +32,18 @@ except ImportError:
     GRPC_AIO_PIN_MODULE_SERVER = None
     GRPC_AIO_PIN_MODULE_CLIENT = None
 
-
 config._add(
     "grpc_server",
     dict(
-        _default_service=constants.GRPC_SERVICE_SERVER,
+        _default_service=schematize_service_name(constants.GRPC_SERVICE_SERVER),
+        distributed_tracing_enabled=True,
+    ),
+)
+
+config._add(
+    "grpc_client",
+    dict(
+        _default_service=schematize_service_name(constants.GRPC_SERVICE_CLIENT),
         distributed_tracing_enabled=True,
     ),
 )
@@ -46,7 +54,7 @@ config._add(
 config._add(
     "grpc",
     dict(
-        _default_service=constants.GRPC_SERVICE_CLIENT,
+        _default_service=schematize_service_name(constants.GRPC_SERVICE_CLIENT),
         distributed_tracing_enabled=True,
     ),
 )
@@ -56,7 +64,7 @@ if HAS_GRPC_AIO:
     config._add(
         "grpc_aio_server",
         dict(
-            _default_service=constants.GRPC_AIO_SERVICE_SERVER,
+            _default_service=schematize_service_name(constants.GRPC_AIO_SERVICE_SERVER),
             distributed_tracing_enabled=True,
         ),
     )
@@ -64,7 +72,7 @@ if HAS_GRPC_AIO:
     config._add(
         "grpc_aio_client",
         dict(
-            _default_service=constants.GRPC_AIO_SERVICE_CLIENT,
+            _default_service=schematize_service_name(constants.GRPC_AIO_SERVICE_CLIENT),
             distributed_tracing_enabled=True,
         ),
     )
