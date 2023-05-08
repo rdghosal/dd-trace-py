@@ -2,12 +2,6 @@ import functools
 import sys
 from typing import TYPE_CHECKING
 
-from ddtrace.appsec import _asm_request_context
-
-from ...appsec._constants import SPAN_DATA_NAMES
-from ..trace_utils import _get_request_header_user_agent
-from ..trace_utils import _set_url_tag
-
 
 if TYPE_CHECKING:  # pragma: no cover
     from typing import Any
@@ -25,6 +19,7 @@ from six.moves.urllib.parse import quote
 
 import ddtrace
 from ddtrace import config
+from ddtrace import context_events
 from ddtrace.ext import SpanKind
 from ddtrace.ext import SpanTypes
 from ddtrace.ext import http
@@ -35,9 +30,7 @@ from ddtrace.propagation.http import HTTPPropagator
 from ddtrace.vendor import wrapt
 
 from .. import trace_utils
-from ...appsec import utils
 from ...constants import SPAN_KIND
-from ...internal import _context
 
 
 log = get_logger(__name__)
@@ -123,29 +116,6 @@ class _DDWSGIMiddlewareBase(object):
         "Returns the name of a response span. Example: `flask.response`"
         raise NotImplementedError
 
-    def _make_block_content(self, environ, headers, span):
-        ctype = "text/html" if "text/html" in headers.get("Accept", "").lower() else "text/json"
-        content = utils._get_blocked_template(ctype).encode("UTF-8")
-        try:
-            span.set_tag_str(SPAN_DATA_NAMES.RESPONSE_HEADERS_NO_COOKIES + ".content-length", str(len(content)))
-            span.set_tag_str(SPAN_DATA_NAMES.RESPONSE_HEADERS_NO_COOKIES + ".content-type", ctype)
-            span.set_tag_str(http.STATUS_CODE, "403")
-            url = construct_url(environ)
-            query_string = environ.get("QUERY_STRING")
-            _set_url_tag(self._config, span, url, query_string)
-            if query_string and self._config.trace_query_string:
-                span.set_tag_str(http.QUERY_STRING, query_string)
-            method = environ.get("REQUEST_METHOD")
-            if method:
-                span.set_tag_str(http.METHOD, method)
-            user_agent = _get_request_header_user_agent(headers, headers_are_case_sensitive=True)
-            if user_agent:
-                span.set_tag_str(http.USER_AGENT, user_agent)
-        except Exception as e:
-            log.warning("Could not set some span tags on blocked request: %s", str(e))  # noqa: G200
-
-        return ctype, content
-
     def __call__(self, environ, start_response):
         # type: (Iterable, Callable) -> _TracedIterable
         trace_utils.activate_distributed_headers(self.tracer, int_config=self._config, request_headers=environ)
@@ -153,8 +123,9 @@ class _DDWSGIMiddlewareBase(object):
         headers = get_request_headers(environ)
         closing_iterator = ()
         not_blocked = True
-        with _asm_request_context.asm_request_context_manager(
-            environ.get("REMOTE_ADDR"), headers, headers_case_sensitive=True
+        # XXX replace this context manager with basically the same code that doesn't reference asm directly
+        with context_events.context_with_data(
+            {"remote_addr": environ.get("REMOTE_ADDR"), "headers": headers, "headers_case_sensitive": True}
         ):
             req_span = self.tracer.trace(
                 self._request_span_name,
@@ -162,20 +133,17 @@ class _DDWSGIMiddlewareBase(object):
                 span_type=SpanTypes.WEB,
             )
 
-            if self.tracer._appsec_enabled:
-                # [IP Blocking]
-                if _context.get_item("http.request.blocked", span=req_span):
-                    ctype, content = self._make_block_content(environ, headers, req_span)
-                    start_response("403 FORBIDDEN", [("content-type", ctype)])
-                    closing_iterator = [content]
-                    not_blocked = False
+            if context_events.get_item("http.request.blocked", span=req_span):
+                ctype, content = context_events.trigger_callbacks(
+                    "http.request.blocked", self, environ, headers, req_span
+                )
+                start_response("403 FORBIDDEN", [("content-type", ctype)])
+                closing_iterator = [content]
+                not_blocked = False
 
-                # [Suspicious Request Blocking on request]
-                def blocked_view():
-                    ctype, content = self._make_block_content(environ, headers, req_span)
-                    return content, 403, [("content-type", ctype)]
-
-                _asm_request_context.set_value(_asm_request_context._CALLBACKS, "flask_block", blocked_view)
+            context_events.trigger_callbacks(
+                "ddtrace.contrib.wsgi.__call__", ddtrace.tracer, self, environ, headers, req_span
+            )
 
             if not_blocked:
                 req_span.set_tag_str(COMPONENT, self._config.integration_name)
@@ -199,9 +167,10 @@ class _DDWSGIMiddlewareBase(object):
                     app_span.finish()
                     req_span.finish()
                     raise
-                if self.tracer._appsec_enabled and _context.get_item("http.request.blocked", span=req_span):
-                    # [Suspicious Request Blocking on request or response]
-                    _, content = self._make_block_content(environ, headers, req_span)
+                if context_events.get_item("http.request.blocked", span=req_span):
+                    _, content = context_events.trigger_callbacks(
+                        "http.request.blocked", self, environ, headers, req_span
+                    )
                     closing_iterator = [content]
 
             # start flask.response span. This span will be finished after iter(result) is closed.

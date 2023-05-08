@@ -1,10 +1,18 @@
 import contextlib
 from typing import TYPE_CHECKING
 
+from six.moves.urllib.parse import quote
+
 from ddtrace import config
+from ddtrace import context_events
+from ddtrace.appsec import utils
 from ddtrace.appsec._constants import SPAN_DATA_NAMES
+from ddtrace.ext import http
 from ddtrace.internal import _context
 from ddtrace.internal.logger import get_logger
+
+from ..trace_utils import _get_request_header_user_agent
+from ..trace_utils import _set_url_tag
 
 
 try:
@@ -278,3 +286,67 @@ def asm_request_context_manager(
             resources.finalise()
     else:
         yield None
+
+
+def construct_url(environ):
+    """
+    https://www.python.org/dev/peps/pep-3333/#url-reconstruction
+    """
+    url = environ["wsgi.url_scheme"] + "://"
+
+    if environ.get("HTTP_HOST"):
+        url += environ["HTTP_HOST"]
+    else:
+        url += environ["SERVER_NAME"]
+
+        if environ["wsgi.url_scheme"] == "https":
+            if environ["SERVER_PORT"] != "443":
+                url += ":" + environ["SERVER_PORT"]
+        else:
+            if environ["SERVER_PORT"] != "80":
+                url += ":" + environ["SERVER_PORT"]
+
+    url += quote(environ.get("SCRIPT_NAME", ""))
+    url += quote(environ.get("PATH_INFO", ""))
+    if environ.get("QUERY_STRING"):
+        url += "?" + environ["QUERY_STRING"]
+
+    return url
+
+
+def _make_block_content(contrib, environ, headers, span):
+    ctype = "text/html" if "text/html" in headers.get("Accept", "").lower() else "text/json"
+    content = utils._get_blocked_template(ctype).encode("UTF-8")
+    try:
+        span.set_tag_str(SPAN_DATA_NAMES.RESPONSE_HEADERS_NO_COOKIES + ".content-length", str(len(content)))
+        span.set_tag_str(SPAN_DATA_NAMES.RESPONSE_HEADERS_NO_COOKIES + ".content-type", ctype)
+        span.set_tag_str(http.STATUS_CODE, "403")
+        url = construct_url(environ)
+        query_string = environ.get("QUERY_STRING")
+        _set_url_tag(contrib._config, span, url, query_string)
+        if query_string and contrib._config.trace_query_string:
+            span.set_tag_str(http.QUERY_STRING, query_string)
+        method = environ.get("REQUEST_METHOD")
+        if method:
+            span.set_tag_str(http.METHOD, method)
+        user_agent = _get_request_header_user_agent(headers, headers_are_case_sensitive=True)
+        if user_agent:
+            span.set_tag_str(http.USER_AGENT, user_agent)
+    except Exception as e:
+        log.warning("Could not set some span tags on blocked request: %s", str(e))  # noqa: G200
+
+    return ctype, content
+
+
+def _suspicious_request_blocking_callback(tracer, _contrib, environ, headers, req_span):
+    if tracer._appsec_enabled:
+        # [Suspicious Request Blocking on request]
+        def blocked_view():
+            ctype, content = _make_block_content(_contrib, environ, headers, req_span)
+            return content, 403, [("content-type", ctype)]
+
+        context_events.set_value(_CALLBACKS, "flask_block", blocked_view)
+
+
+context_events.register_callback("ddtrace.contrib.wsgi.__call__", _suspicious_request_blocking_callback)
+context_events.register_callback("http.request.blocked", _make_block_content)
