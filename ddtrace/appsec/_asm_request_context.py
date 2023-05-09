@@ -320,15 +320,4 @@ def _make_block_content(headers):
     return ctype, content
 
 
-def _suspicious_request_blocking_callback(headers):
-    if bool(context_events.get_value("asm_enabled", False)):
-        # [Suspicious Request Blocking on request]
-        def blocked_view():
-            ctype, content = _make_block_content(headers)
-            return content, 403, [("content-type", ctype)]
-
-        context_events.set_value(_CALLBACKS, "flask_block", blocked_view)
-
-
-context_events.register_callback("ddtrace.contrib.wsgi.__call__", _suspicious_request_blocking_callback)
 context_events.register_callback("http.request.blocked", _make_block_content)

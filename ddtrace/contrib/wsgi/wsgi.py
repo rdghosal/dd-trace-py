@@ -157,14 +157,12 @@ class _DDWSGIMiddlewareBase(object):
                 span_type=SpanTypes.WEB,
             )
 
-            if context_events.get_item("http.request.blocked", span=req_span):
+            if context_events.get_item("http.request.blocked"):
                 ctype, content = context_events.trigger_callbacks("http.request.blocked", headers)
                 self._adjust_tags_for_blocking(req_span, environ, headers, content, ctype)
                 start_response("403 FORBIDDEN", [("content-type", ctype)])
                 closing_iterator = [content]
                 not_blocked = False
-
-            context_events.trigger_callbacks("ddtrace.contrib.wsgi.__call__", self, environ, headers, req_span)
 
             def blocked_view():
                 ctype, content = context_events.trigger_callbacks("http.request.blocked", headers)
@@ -195,7 +193,7 @@ class _DDWSGIMiddlewareBase(object):
                     app_span.finish()
                     req_span.finish()
                     raise
-                if context_events.get_item("http.request.blocked", span=req_span):
+                if context_events.get_item("http.request.blocked"):
                     ctype, content = context_events.trigger_callbacks("http.request.blocked", headers)
                     self._adjust_tags_for_blocking(req_span, environ, headers, content, ctype)
                     closing_iterator = [content]
