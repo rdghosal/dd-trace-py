@@ -314,35 +314,17 @@ def construct_url(environ):
     return url
 
 
-def _make_block_content(contrib, environ, headers, span):
+def _make_block_content(headers):
     ctype = "text/html" if "text/html" in headers.get("Accept", "").lower() else "text/json"
     content = utils._get_blocked_template(ctype).encode("UTF-8")
-    try:
-        span.set_tag_str(SPAN_DATA_NAMES.RESPONSE_HEADERS_NO_COOKIES + ".content-length", str(len(content)))
-        span.set_tag_str(SPAN_DATA_NAMES.RESPONSE_HEADERS_NO_COOKIES + ".content-type", ctype)
-        span.set_tag_str(http.STATUS_CODE, "403")
-        url = construct_url(environ)
-        query_string = environ.get("QUERY_STRING")
-        _set_url_tag(contrib._config, span, url, query_string)
-        if query_string and contrib._config.trace_query_string:
-            span.set_tag_str(http.QUERY_STRING, query_string)
-        method = environ.get("REQUEST_METHOD")
-        if method:
-            span.set_tag_str(http.METHOD, method)
-        user_agent = _get_request_header_user_agent(headers, headers_are_case_sensitive=True)
-        if user_agent:
-            span.set_tag_str(http.USER_AGENT, user_agent)
-    except Exception as e:
-        log.warning("Could not set some span tags on blocked request: %s", str(e))  # noqa: G200
-
     return ctype, content
 
 
-def _suspicious_request_blocking_callback(tracer, _contrib, environ, headers, req_span):
-    if tracer._appsec_enabled:
+def _suspicious_request_blocking_callback(headers):
+    if bool(context_events.get_value("asm_enabled", False)):
         # [Suspicious Request Blocking on request]
         def blocked_view():
-            ctype, content = _make_block_content(_contrib, environ, headers, req_span)
+            ctype, content = _make_block_content(headers)
             return content, 403, [("content-type", ctype)]
 
         context_events.set_value(_CALLBACKS, "flask_block", blocked_view)

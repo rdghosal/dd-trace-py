@@ -20,6 +20,7 @@ from six.moves.urllib.parse import quote
 import ddtrace
 from ddtrace import config
 from ddtrace import context_events
+from ddtrace.appsec._constants import SPAN_DATA_NAMES
 from ddtrace.ext import SpanKind
 from ddtrace.ext import SpanTypes
 from ddtrace.ext import http
@@ -31,11 +32,15 @@ from ddtrace.vendor import wrapt
 
 from .. import trace_utils
 from ...constants import SPAN_KIND
+from ..trace_utils import _get_request_header_user_agent
+from ..trace_utils import _set_url_tag
 
 
 log = get_logger(__name__)
 
 propagator = HTTPPropagator
+
+_CALLBACKS = "callbacks"
 
 config._add(
     "wsgi",
@@ -116,6 +121,25 @@ class _DDWSGIMiddlewareBase(object):
         "Returns the name of a response span. Example: `flask.response`"
         raise NotImplementedError
 
+    def _adjust_tags_for_blocking(self, span, environ, headers, content, ctype):
+        try:
+            span.set_tag_str(SPAN_DATA_NAMES.RESPONSE_HEADERS_NO_COOKIES + ".content-length", str(len(content)))
+            span.set_tag_str(SPAN_DATA_NAMES.RESPONSE_HEADERS_NO_COOKIES + ".content-type", ctype)
+            span.set_tag_str(http.STATUS_CODE, "403")
+            url = construct_url(environ)
+            query_string = environ.get("QUERY_STRING")
+            _set_url_tag(self._config, span, url, query_string)
+            if query_string and self._config.trace_query_string:
+                span.set_tag_str(http.QUERY_STRING, query_string)
+            method = environ.get("REQUEST_METHOD")
+            if method:
+                span.set_tag_str(http.METHOD, method)
+            user_agent = _get_request_header_user_agent(headers, headers_are_case_sensitive=True)
+            if user_agent:
+                span.set_tag_str(http.USER_AGENT, user_agent)
+        except Exception as e:
+            log.warning("Could not set some span tags on blocked request: %s", str(e))  # noqa: G200
+
     def __call__(self, environ, start_response):
         # type: (Iterable, Callable) -> _TracedIterable
         trace_utils.activate_distributed_headers(self.tracer, int_config=self._config, request_headers=environ)
@@ -134,16 +158,20 @@ class _DDWSGIMiddlewareBase(object):
             )
 
             if context_events.get_item("http.request.blocked", span=req_span):
-                ctype, content = context_events.trigger_callbacks(
-                    "http.request.blocked", self, environ, headers, req_span
-                )
+                ctype, content = context_events.trigger_callbacks("http.request.blocked", headers)
+                self._adjust_tags_for_blocking(req_span, environ, headers, content, ctype)
                 start_response("403 FORBIDDEN", [("content-type", ctype)])
                 closing_iterator = [content]
                 not_blocked = False
 
-            context_events.trigger_callbacks(
-                "ddtrace.contrib.wsgi.__call__", ddtrace.tracer, self, environ, headers, req_span
-            )
+            context_events.trigger_callbacks("ddtrace.contrib.wsgi.__call__", self, environ, headers, req_span)
+
+            def blocked_view():
+                ctype, content = context_events.trigger_callbacks("http.request.blocked", headers)
+                self._adjust_tags_for_blocking(req_span, environ, headers, content, ctype)
+                return content, 403, [("content-type", ctype)]
+
+            context_events.set_value(_CALLBACKS, "flask_block", blocked_view)
 
             if not_blocked:
                 req_span.set_tag_str(COMPONENT, self._config.integration_name)
@@ -168,9 +196,8 @@ class _DDWSGIMiddlewareBase(object):
                     req_span.finish()
                     raise
                 if context_events.get_item("http.request.blocked", span=req_span):
-                    _, content = context_events.trigger_callbacks(
-                        "http.request.blocked", self, environ, headers, req_span
-                    )
+                    ctype, content = context_events.trigger_callbacks("http.request.blocked", headers)
+                    self._adjust_tags_for_blocking(req_span, environ, headers, content, ctype)
                     closing_iterator = [content]
 
             # start flask.response span. This span will be finished after iter(result) is closed.
