@@ -10,6 +10,7 @@ from threading import RLock
 from typing import TYPE_CHECKING
 
 from ddtrace import config
+from ddtrace import context_events
 from ddtrace.filters import TraceFilter
 from ddtrace.internal.processor.endpoint_call_counter import EndpointCallCounterProcessor
 from ddtrace.internal.sampling import SpanSamplingRule
@@ -1062,3 +1063,22 @@ class Tracer(object):
     @staticmethod
     def _is_span_internal(span):
         return not span.span_type or span.span_type in _INTERNAL_APPLICATION_SPAN_TYPES
+
+
+def context_to_span(context, parent_span):
+    span = Span.from_context(context, parent=parent_span)
+    child_spans = []
+    for child in context.children:
+        child_span = context_to_span(child, span)
+        child_spans.append(child_span)
+    return span
+
+
+def context_to_trace(context):
+    # when a root context closes, turn it and its children into a trace
+    if context.parent is not None:
+        return
+    return context_to_span(context, None)
+
+
+context_events.on("context.__exit__", context_to_trace)

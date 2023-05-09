@@ -320,4 +320,4 @@ def _make_block_content(headers):
     return ctype, content
 
 
-context_events.register_callback("http.request.blocked", _make_block_content)
+context_events.on("http.request.blocked", _make_block_content)

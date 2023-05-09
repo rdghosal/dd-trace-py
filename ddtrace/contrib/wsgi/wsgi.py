@@ -40,8 +40,6 @@ log = get_logger(__name__)
 
 propagator = HTTPPropagator
 
-_CALLBACKS = "callbacks"
-
 config._add(
     "wsgi",
     dict(
@@ -121,22 +119,22 @@ class _DDWSGIMiddlewareBase(object):
         "Returns the name of a response span. Example: `flask.response`"
         raise NotImplementedError
 
-    def _adjust_tags_for_blocking(self, span, environ, headers, content, ctype):
+    def _adjust_context_for_blocking(self, context, environ, headers, content, ctype):
         try:
-            span.set_tag_str(SPAN_DATA_NAMES.RESPONSE_HEADERS_NO_COOKIES + ".content-length", str(len(content)))
-            span.set_tag_str(SPAN_DATA_NAMES.RESPONSE_HEADERS_NO_COOKIES + ".content-type", ctype)
-            span.set_tag_str(http.STATUS_CODE, "403")
+            context.set_value(SPAN_DATA_NAMES.RESPONSE_HEADERS_NO_COOKIES + ".content-length", str(len(content)))
+            context.set_value(SPAN_DATA_NAMES.RESPONSE_HEADERS_NO_COOKIES + ".content-type", ctype)
+            context.set_value(http.STATUS_CODE, "403")
             url = construct_url(environ)
             query_string = environ.get("QUERY_STRING")
-            _set_url_tag(self._config, span, url, query_string)
+            _set_url_tag(self._config, context, url, query_string)
             if query_string and self._config.trace_query_string:
-                span.set_tag_str(http.QUERY_STRING, query_string)
+                context.set_value(http.QUERY_STRING, query_string)
             method = environ.get("REQUEST_METHOD")
             if method:
-                span.set_tag_str(http.METHOD, method)
+                context.set_value(http.METHOD, method)
             user_agent = _get_request_header_user_agent(headers, headers_are_case_sensitive=True)
             if user_agent:
-                span.set_tag_str(http.USER_AGENT, user_agent)
+                context.set_value(http.USER_AGENT, user_agent)
         except Exception as e:
             log.warning("Could not set some span tags on blocked request: %s", str(e))  # noqa: G200
 
@@ -147,83 +145,84 @@ class _DDWSGIMiddlewareBase(object):
         headers = get_request_headers(environ)
         closing_iterator = ()
         not_blocked = True
-        # XXX replace this context manager with basically the same code that doesn't reference asm directly
-        with context_events.context_with_data(
-            {"remote_addr": environ.get("REMOTE_ADDR"), "headers": headers, "headers_case_sensitive": True}
-        ):
-            req_span = self.tracer.trace(
-                self._request_span_name,
-                service=trace_utils.int_service(self._pin, self._config),
-                span_type=SpanTypes.WEB,
-            )
 
-            if context_events.get_item("http.request.blocked"):
-                ctype, content = context_events.trigger_callbacks("http.request.blocked", headers)
-                self._adjust_tags_for_blocking(req_span, environ, headers, content, ctype)
-                start_response("403 FORBIDDEN", [("content-type", ctype)])
+        request_context = context_events.context_with_data(
+            self._request_span_name,
+            remote_addr=environ.get("REMOTE_ADDR"),
+            headers=headers,
+            headers_case_sensitive=True,
+            service=trace_utils.int_service(self._pin, self._config),
+            _type=SpanTypes.WEB,
+        )
+
+        if request_context.get_item("http.request.blocked"):
+            ctype, content = context_events.dispatch("http.request.blocked", headers)
+            self._adjust_context_for_blocking(request_context, environ, headers, content, ctype)
+            start_response("403 FORBIDDEN", [("content-type", ctype)])
+            closing_iterator = [content]
+            not_blocked = False
+
+        def blocked_view():
+            ctype, content = context_events.dispatch("http.request.blocked", headers)
+            self._adjust_context_for_blocking(request_context, environ, headers, content, ctype)
+            return content, 403, [("content-type", ctype)]
+
+        context_events.on("flask_block", blocked_view)
+
+        if not_blocked:
+            request_context.set_value(COMPONENT, self._config.integration_name)
+            # set span.kind to the type of operation being performed
+            request_context.set_value(SPAN_KIND, SpanKind.SERVER)
+            self._request_context_modifier(request_context, environ)
+            try:
+                app_context = context_events.context_with_data(self._application_span_name)
+
+                app_context.set_value(COMPONENT, self._config.integration_name)
+
+                intercept_start_response = functools.partial(
+                    self._traced_start_response, start_response, request_context, app_context
+                )
+                closing_iterator = self.app(environ, intercept_start_response)
+                self._application_context_modifier(app_context, environ, closing_iterator)
+                app_context.finish()
+            except BaseException:
+                request_context.set_exc_info(*sys.exc_info())
+                app_context.set_exc_info(*sys.exc_info())
+                app_context.finish()
+                request_context.finish()
+                raise
+            if request_context.get_item("http.request.blocked"):
+                ctype, content = context_events.dispatch("http.request.blocked", headers)
+                self._adjust_context_for_blocking(request_context, environ, headers, content, ctype)
                 closing_iterator = [content]
-                not_blocked = False
 
-            def blocked_view():
-                ctype, content = context_events.trigger_callbacks("http.request.blocked", headers)
-                self._adjust_tags_for_blocking(req_span, environ, headers, content, ctype)
-                return content, 403, [("content-type", ctype)]
+        resp_context = context_events.context_with_data(
+            self._response_span_name, child_of=request_context, activate=True
+        )
 
-            context_events.set_value(_CALLBACKS, "flask_block", blocked_view)
+        resp_context.set_value(COMPONENT, self._config.integration_name)
 
-            if not_blocked:
-                req_span.set_tag_str(COMPONENT, self._config.integration_name)
-                # set span.kind to the type of operation being performed
-                req_span.set_tag_str(SPAN_KIND, SpanKind.SERVER)
-                self._request_span_modifier(req_span, environ)
-                try:
-                    app_span = self.tracer.trace(self._application_span_name)
+        self._response_context_modifier(resp_context, closing_iterator)
 
-                    app_span.set_tag_str(COMPONENT, self._config.integration_name)
+        with request_context:  # using the context's reentrant capability
+            return _TracedIterable(iter(closing_iterator), resp_context, request_context)
 
-                    intercept_start_response = functools.partial(
-                        self._traced_start_response, start_response, req_span, app_span
-                    )
-                    closing_iterator = self.app(environ, intercept_start_response)
-                    self._application_span_modifier(app_span, environ, closing_iterator)
-                    app_span.finish()
-                except BaseException:
-                    req_span.set_exc_info(*sys.exc_info())
-                    app_span.set_exc_info(*sys.exc_info())
-                    app_span.finish()
-                    req_span.finish()
-                    raise
-                if context_events.get_item("http.request.blocked"):
-                    ctype, content = context_events.trigger_callbacks("http.request.blocked", headers)
-                    self._adjust_tags_for_blocking(req_span, environ, headers, content, ctype)
-                    closing_iterator = [content]
-
-            # start flask.response span. This span will be finished after iter(result) is closed.
-            # start_span(child_of=...) is used to ensure correct parenting.
-            resp_span = self.tracer.start_span(self._response_span_name, child_of=req_span, activate=True)
-
-            resp_span.set_tag_str(COMPONENT, self._config.integration_name)
-
-            self._response_span_modifier(resp_span, closing_iterator)
-
-            return _TracedIterable(iter(closing_iterator), resp_span, req_span)
-
-    def _traced_start_response(self, start_response, request_span, app_span, status, environ, exc_info=None):
+    def _traced_start_response(self, start_response, request_context, app_context, status, environ, exc_info=None):
         # type: (Callable, Span, Span, str, Dict, Any) -> None
         """sets the status code on a request span when start_response is called"""
         status_code, _ = status.split(" ", 1)
-        trace_utils.set_http_meta(request_span, self._config, status_code=status_code)
+        trace_utils.set_http_meta(request_context, self._config, status_code=status_code)
         return start_response(status, environ, exc_info)
 
-    def _request_span_modifier(self, req_span, environ, parsed_headers=None):
+    def _request_context_modifier(self, req_context, environ, parsed_headers=None):
         # type: (Span, Dict, Optional[Dict]) -> None
         """Implement to modify span attributes on the request_span"""
 
-    def _application_span_modifier(self, app_span, environ, result):
+    def _application_context_modifier(self, app_context, environ, result):
         # type: (Span, Dict, Iterable) -> None
         """Implement to modify span attributes on the application_span"""
 
-    def _response_span_modifier(self, resp_span, response):
+    def _response_context_modifier(self, resp_context, response):
         # type: (Span, Dict) -> None
         """Implement to modify span attributes on the request_span"""
 
@@ -287,26 +286,26 @@ class DDWSGIMiddleware(_DDWSGIMiddlewareBase):
         super(DDWSGIMiddleware, self).__init__(application, tracer or ddtrace.tracer, config.wsgi, None)
         self.span_modifier = span_modifier
 
-    def _traced_start_response(self, start_response, request_span, app_span, status, environ, exc_info=None):
+    def _traced_start_response(self, start_response, request_context, app_context, status, environ, exc_info=None):
         status_code, status_msg = status.split(" ", 1)
-        request_span.set_tag_str(http.STATUS_MSG, status_msg)
-        trace_utils.set_http_meta(request_span, self._config, status_code=status_code, response_headers=environ)
+        request_context.set_value(http.STATUS_MSG, status_msg)
+        trace_utils.set_http_meta(request_context, self._config, status_code=status_code, response_headers=environ)
 
-        with self.tracer.start_span(
+        with context_events.context_with_data(
             "wsgi.start_response",
-            child_of=app_span,
+            child_of=app_context,
             service=trace_utils.int_service(None, self._config),
-            span_type=SpanTypes.WEB,
+            _type=SpanTypes.WEB,
             activate=True,
-        ) as span:
-            span.set_tag_str(COMPONENT, self._config.integration_name)
+        ) as response_context:
+            response_context.set_value(COMPONENT, self._config.integration_name)
 
             # set span.kind to the type of operation being performed
-            span.set_tag_str(SPAN_KIND, SpanKind.SERVER)
+            response_context.set_value(SPAN_KIND, SpanKind.SERVER)
 
             return start_response(status, environ, exc_info)
 
-    def _request_span_modifier(self, req_span, environ, parsed_headers=None):
+    def _request_context_modifier(self, req_span, environ, parsed_headers=None):
         url = construct_url(environ)
         method = environ.get("REQUEST_METHOD")
         query_string = environ.get("QUERY_STRING")
@@ -317,8 +316,8 @@ class DDWSGIMiddleware(_DDWSGIMiddlewareBase):
         if self.span_modifier:
             self.span_modifier(req_span, environ)
 
-    def _response_span_modifier(self, resp_span, response):
+    def _response_context_modifier(self, resp_context, response):
         if hasattr(response, "__class__"):
             resp_class = getattr(getattr(response, "__class__"), "__name__", None)
             if resp_class:
-                resp_span.set_tag_str("result_class", resp_class)
+                resp_context.set_value("result_class", resp_class)
