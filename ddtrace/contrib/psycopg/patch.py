@@ -23,6 +23,8 @@ from ddtrace.contrib.psycopg.extensions import get_psycopg2_extensions
 from ddtrace.propagation._database_monitoring import default_sql_injector as _default_sql_injector
 from ddtrace.vendor.wrapt import wrap_function_wrapper as _w
 
+from ...internal.schema import schematize_database_operation
+from ...internal.schema import schematize_service_name
 from ...internal.utils.formats import asbool
 from ...internal.utils.wrappers import unwrap as _u
 from ...propagation._database_monitoring import _DBM_Propagator
@@ -42,8 +44,9 @@ def _psycopg_sql_injector(dbm_comment, sql_statement):
 config._add(
     "psycopg",
     dict(
-        _default_service="postgres",
+        _default_service=schematize_service_name("postgres"),
         _dbapi_span_name_prefix="postgres",
+        _dbapi_span_operation_name=schematize_database_operation("postgres.query", database_provider="postgresql"),
         _patched_modules=set(),
         _patched_functions=dict(),
         trace_fetch_methods=asbool(
