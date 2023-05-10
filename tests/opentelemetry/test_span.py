@@ -208,7 +208,7 @@ def test_otel_span_with_remote_parent(oteltracer, trace_flags, trace_state):
 
 
 def test_otel_span_creation_metrics(oteltracer):
-    with mock.patch("ddtrace.internal.telemetry.__init__.telemetry_metrics_writer._add_metric") as mock_tm:
+    with mock.patch("ddtrace.opentelemetry._span.telemetry_metrics_writer._add_metric") as mock_tm:
         otelspan = oteltracer.start_span("otel")
         otelspan.end()
         mock_tm.assert_called_once_with("count", "tracers", "otel.span_created", 1.0, {})
