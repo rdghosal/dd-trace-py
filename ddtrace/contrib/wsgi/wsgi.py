@@ -19,7 +19,7 @@ from six.moves.urllib.parse import quote
 
 import ddtrace
 from ddtrace import config
-from ddtrace import context_events
+from ddtrace import core
 from ddtrace.appsec._constants import SPAN_DATA_NAMES
 from ddtrace.ext import SpanKind
 from ddtrace.ext import SpanTypes
@@ -146,7 +146,7 @@ class _DDWSGIMiddlewareBase(object):
         closing_iterator = ()
         not_blocked = True
 
-        request_context = context_events.context_with_data(
+        request_context = core.context_with_data(
             self._request_span_name,
             remote_addr=environ.get("REMOTE_ADDR"),
             headers=headers,
@@ -156,18 +156,18 @@ class _DDWSGIMiddlewareBase(object):
         )
 
         if request_context.get_item("http.request.blocked"):
-            ctype, content = context_events.dispatch("http.request.blocked", headers)
+            ctype, content = core.dispatch("http.request.blocked", headers)
             self._adjust_context_for_blocking(request_context, environ, headers, content, ctype)
             start_response("403 FORBIDDEN", [("content-type", ctype)])
             closing_iterator = [content]
             not_blocked = False
 
         def blocked_view():
-            ctype, content = context_events.dispatch("http.request.blocked", headers)
+            ctype, content = core.dispatch("http.request.blocked", headers)
             self._adjust_context_for_blocking(request_context, environ, headers, content, ctype)
             return content, 403, [("content-type", ctype)]
 
-        context_events.on("flask_block", blocked_view)
+        core.on("flask_block", blocked_view)
 
         if not_blocked:
             request_context.set_value(COMPONENT, self._config.integration_name)
@@ -175,7 +175,7 @@ class _DDWSGIMiddlewareBase(object):
             request_context.set_value(SPAN_KIND, SpanKind.SERVER)
             self._request_context_modifier(request_context, environ)
             try:
-                app_context = context_events.context_with_data(self._application_span_name)
+                app_context = core.context_with_data(self._application_span_name)
 
                 app_context.set_value(COMPONENT, self._config.integration_name)
 
@@ -192,13 +192,11 @@ class _DDWSGIMiddlewareBase(object):
                 request_context.finish()
                 raise
             if request_context.get_item("http.request.blocked"):
-                ctype, content = context_events.dispatch("http.request.blocked", headers)
+                ctype, content = core.dispatch("http.request.blocked", headers)
                 self._adjust_context_for_blocking(request_context, environ, headers, content, ctype)
                 closing_iterator = [content]
 
-        resp_context = context_events.context_with_data(
-            self._response_span_name, child_of=request_context, activate=True
-        )
+        resp_context = core.context_with_data(self._response_span_name, child_of=request_context, activate=True)
 
         resp_context.set_value(COMPONENT, self._config.integration_name)
 
@@ -291,7 +289,7 @@ class DDWSGIMiddleware(_DDWSGIMiddlewareBase):
         request_context.set_value(http.STATUS_MSG, status_msg)
         trace_utils.set_http_meta(request_context, self._config, status_code=status_code, response_headers=environ)
 
-        with context_events.context_with_data(
+        with core.context_with_data(
             "wsgi.start_response",
             child_of=app_context,
             service=trace_utils.int_service(None, self._config),

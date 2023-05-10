@@ -10,7 +10,7 @@ from threading import RLock
 from typing import TYPE_CHECKING
 
 from ddtrace import config
-from ddtrace import context_events
+from ddtrace import core
 from ddtrace.filters import TraceFilter
 from ddtrace.internal.processor.endpoint_call_counter import EndpointCallCounterProcessor
 from ddtrace.internal.sampling import SpanSamplingRule
@@ -1081,4 +1081,4 @@ def context_to_trace(context):
     return context_to_span(context, None)
 
 
-context_events.on("context.__exit__", context_to_trace)
+core.on("context.__exit__", context_to_trace)

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from six.moves.urllib.parse import quote
 
 from ddtrace import config
-from ddtrace import context_events
+from ddtrace import core
 from ddtrace.appsec import utils
 from ddtrace.appsec._constants import SPAN_DATA_NAMES
 from ddtrace.ext import http
@@ -320,4 +320,4 @@ def _make_block_content(headers):
     return ctype, content
 
 
-context_events.on("http.request.blocked", _make_block_content)
+core.on("http.request.blocked", _make_block_content)
