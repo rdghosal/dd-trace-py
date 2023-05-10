@@ -14,8 +14,7 @@ from ddtrace.constants import ERROR_STACK
 from ddtrace.constants import ERROR_TYPE
 from ddtrace.context import Context as DatadogContext
 from ddtrace.internal.compat import NumericType
-from ddtrace.internal.constants import SPAN_API_KEY
-from ddtrace.internal.constants import SPAN_API_OPENTRACING
+from ddtrace.internal.telemetry import telemetry_metrics_writer
 from ddtrace.span import Span as DatadogSpan
 
 from .span_context import SpanContext
@@ -45,7 +44,7 @@ class Span(OpenTracingSpan):
         self._lock = threading.Lock()
         # use a datadog span
         self._dd_span = DatadogSpan(operation_name, context=context._dd_context)
-        self._dd_span._set_ctx_item(SPAN_API_KEY, SPAN_API_OPENTRACING)
+        telemetry_metrics_writer.add_count_metric("tracers", "opentracing.span_created")
 
     def finish(self, finish_time=None):
         # type: (Optional[float]) -> None

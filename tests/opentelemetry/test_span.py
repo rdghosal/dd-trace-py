@@ -13,8 +13,6 @@ from opentelemetry.trace.status import StatusCode as OtelStatusCode
 import pytest
 
 from ddtrace.constants import MANUAL_DROP_KEY
-from ddtrace.internal.constants import SPAN_API_KEY
-from ddtrace.internal.constants import SPAN_API_OTEL
 
 
 @pytest.mark.snapshot
@@ -211,7 +209,6 @@ def test_otel_span_with_remote_parent(oteltracer, trace_flags, trace_state):
 
 def test_otel_span_creation_metrics(oteltracer):
     otelspan = oteltracer.start_span("otel")
-    assert otelspan._ddspan._get_ctx_item(SPAN_API_KEY) is SPAN_API_OTEL
 
     with mock.patch("ddtrace.internal.processor.trace.telemetry_metrics_writer._add_metric") as mock_tm:
         otelspan.end()

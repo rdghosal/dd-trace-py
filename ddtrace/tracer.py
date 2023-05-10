@@ -14,6 +14,7 @@ from ddtrace.filters import TraceFilter
 from ddtrace.internal.processor.endpoint_call_counter import EndpointCallCounterProcessor
 from ddtrace.internal.sampling import SpanSamplingRule
 from ddtrace.internal.sampling import get_span_sampling_rules
+from ddtrace.internal.telemetry import telemetry_metrics_writer
 from ddtrace.vendor import debtcollector
 
 from . import _hooks
@@ -573,6 +574,7 @@ class Tracer(object):
         resource=None,  # type: Optional[str]
         span_type=None,  # type: Optional[str]
         activate=False,  # type: bool
+        wrapped=False,  # type: bool
     ):
         # type: (...) -> Span
         """Return a span that represents an operation called ``name``.
@@ -623,6 +625,10 @@ class Tracer(object):
                     span_id=child_of.span_id,
                     trace_id=child_of.trace_id,
                 )
+
+            # if not created by otel, ot, or some other library that we create DD spans for, increment
+            if not wrapped:
+                telemetry_metrics_writer.add_count_metric("tracers", "datadog.span_created")
 
                 # If the child_of span was active then activate the new context
                 # containing it so that the strong span referenced is removed

@@ -2,7 +2,6 @@ import abc
 from collections import defaultdict
 import threading
 from typing import DefaultDict
-from typing import Dict
 from typing import Iterable
 from typing import List
 from typing import Optional
@@ -16,14 +15,11 @@ from ddtrace.constants import USER_KEEP
 from ddtrace.internal import gitmetadata
 from ddtrace.internal.constants import HIGHER_ORDER_TRACE_ID_BITS
 from ddtrace.internal.constants import MAX_UINT_64BITS
-from ddtrace.internal.constants import SPAN_API_DATADOG
-from ddtrace.internal.constants import SPAN_API_KEY
 from ddtrace.internal.logger import get_logger
 from ddtrace.internal.processor import SpanProcessor
 from ddtrace.internal.sampling import SpanSamplingRule
 from ddtrace.internal.sampling import is_single_span_sampled
 from ddtrace.internal.service import ServiceStatusError
-from ddtrace.internal.telemetry import telemetry_metrics_writer
 from ddtrace.internal.writer import TraceWriter
 from ddtrace.span import Span
 from ddtrace.span import _get_64_highest_order_bits_as_hex
@@ -147,25 +143,6 @@ class TraceTagsProcessor(TraceProcessor):
         if chunk_root.trace_id > MAX_UINT_64BITS:
             trace_id_hob = _get_64_highest_order_bits_as_hex(chunk_root.trace_id)
             chunk_root.set_tag_str(HIGHER_ORDER_TRACE_ID_BITS, trace_id_hob)
-        return trace
-
-
-@attr.s
-class TelemetryTraceProcessor(TraceProcessor):
-    def process_trace(self, trace):
-        # type: (List[Span]) -> Optional[List[Span]]
-        if not trace:
-            return None
-
-        _span_api_metrics = defaultdict(int)  # type: Dict[str,int]
-        for span in trace:
-            span_api = span._get_ctx_item(SPAN_API_KEY) or SPAN_API_DATADOG
-            _span_api_metrics[span_api] += 1
-
-        for span_api, count in _span_api_metrics.items():
-            metric = "{}.span_created".format(span_api)
-            telemetry_metrics_writer.add_count_metric("tracers", metric, count)
-
         return trace
 
 

@@ -294,6 +294,7 @@ class Tracer(opentracing.Tracer):
             child_of=dd_parent,
             service=self._service_name,
             activate=False,
+            wrapped=True,
         )
 
         # set the start time if one is specified
