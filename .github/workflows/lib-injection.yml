@@ -84,7 +84,16 @@ jobs:
             --verbose
       - name: Ensure the correct ddtrace version is installed
         run: |
-          echo $PYTHONPATH && ddtrace-run --version && PYTHONPATH=$(pwd)/lib-injection python -c "import ddtrace; exit(1) if ddtrace._version.version_tuple[:2] != (1, 10) else exit()"
+          export PYTHONPATH=$(pwd)/lib-injection
+          export PYTHONVERBOSE=1
+          echo $PYTHONPATH
+          echo "xxxxxxxx"
+          python -c "import sys; print(sys.path)"
+          echo "xxxxxxxx"
+          ddtrace-run --version
+          echo "xxxxxxxx"
+          python -c "import ddtrace; exit(1) if ddtrace._version.version_tuple[:2] != (1, 10) else exit()"
+          unset PYTHONPATH
       - name: Build test app
         run: |
           docker build \
