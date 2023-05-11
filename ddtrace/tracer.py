@@ -615,6 +615,10 @@ class Tracer(object):
         Note: be sure to finish all spans to avoid memory leaks and incorrect
         parenting of spans.
         """
+        # if not created by otel, ot, or some other library that we create DD spans for, increment
+        if not wrapped:
+            telemetry_metrics_writer.add_count_metric("tracers", "datadog.span_created")
+
         if self._new_process:
             self._new_process = False
 
@@ -628,10 +632,6 @@ class Tracer(object):
                     span_id=child_of.span_id,
                     trace_id=child_of.trace_id,
                 )
-
-            # if not created by otel, ot, or some other library that we create DD spans for, increment
-            if not wrapped:
-                telemetry_metrics_writer.add_count_metric("tracers", "datadog.span_created")
 
                 # If the child_of span was active then activate the new context
                 # containing it so that the strong span referenced is removed
