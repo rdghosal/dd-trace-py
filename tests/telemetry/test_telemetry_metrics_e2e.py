@@ -90,6 +90,8 @@ def test_telemetry_metrics_enabled_on_gunicorn_child_process(test_agent_session)
         assert response_content["telemetry_metrics_writer_running"] is True
         assert response_content["telemetry_metrics_writer_worker"] is True
         assert response_content["telemetry_metrics_writer_queue"][0]["metric"] == "datadog.span_created"
+        assert response_content["telemetry_metrics_writer_queue"][0]["points"][0][1] == 32.0
+
         assert response_content["telemetry_metrics_writer_queue"][1]["metric"] == "test_metric"
         assert response_content["telemetry_metrics_writer_queue"][1]["points"][0][1] == 3.0
         time.sleep(1)
@@ -97,6 +99,8 @@ def test_telemetry_metrics_enabled_on_gunicorn_child_process(test_agent_session)
         response = gunicorn_client.get("/metrics")
         response_content = json.loads(response.content)
         assert response_content["telemetry_metrics_writer_queue"][0]["metric"] == "datadog.span_created"
+        assert response_content["telemetry_metrics_writer_queue"][0]["points"][0][1] == 14.0
+
         assert response_content["telemetry_metrics_writer_queue"][1]["points"][0][1] == 2.0
         assert response_content["telemetry_metrics_writer_queue"][1]["metric"] == "test_metric"
     events = test_agent_session.get_events()
