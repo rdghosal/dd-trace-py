@@ -311,6 +311,7 @@ def test_distributed_tracing_nested():
     assert resp.status == "200 OK"
     assert resp.status_int == 200
 
+
 @pytest.mark.snapshot()
 @pytest.mark.parametrize("schema_version", [None, "v0", "v1"])
 @pytest.mark.parametrize("service_name", [None, "mysvc"])
@@ -326,8 +327,8 @@ app.get("/")"""
 
     env = os.environ.copy()
     if schema_version is not None:
-        env['DD_TRACE_SPAN_ATTRIBUTE_SCHEMA'] = schema_version
+        env["DD_TRACE_SPAN_ATTRIBUTE_SCHEMA"] = schema_version
     if service_name is not None:
-        env['DD_SERVICE'] = service_name
+        env["DD_SERVICE"] = service_name
     _, stderr, status, _ = ddtrace_run_python_code_in_subprocess(code, env=env)
     assert status == 0, stderr
