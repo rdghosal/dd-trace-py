@@ -84,6 +84,8 @@ jobs:
             --verbose
       - name: Ensure the correct ddtrace version is installed
         run: |
+          echo $(which ddtrace-run)
+          pip uninstall ddtrace
           PYTHONPATH=$(pwd)/lib-injection python -c "import ddtrace; exit(1) if ddtrace._version.version_tuple[:2] != (1, 10) else exit()"
       - name: Build test app
         run: |
