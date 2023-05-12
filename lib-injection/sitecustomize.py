@@ -25,7 +25,7 @@ if "DDTRACE_PYTHON_INSTALL_IN_PROGRESS" not in os.environ:
     try:
         import ddtrace  # noqa: F401
 
-    except ImportError:
+    except (ImportError, ModuleNotFoundError):
         import subprocess
 
         print("datadog autoinstrumentation: installing python package")
