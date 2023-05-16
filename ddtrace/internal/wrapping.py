@@ -353,6 +353,7 @@ def wrap_bytecode(wrapper, wrapped):
         instrs.append(Instr("BUILD_MAP", kwonlyargs, lineno=lineno))
         if varkwargs:
             if sys.version_info < (3, 11):
+                # Python < 3.11
                 instrs.extend(
                     [
                         Instr("DUP_TOP", lineno=lineno),
@@ -362,7 +363,19 @@ def wrap_bytecode(wrapper, wrapped):
                         Instr("POP_TOP", lineno=lineno),
                     ]
                 )
+            elif sys.version_info >= (3, 12):
+                # Python 3.12+
+                instrs.extend(
+                    [
+                        Instr("COPY", 1, lineno=lineno),
+                        Instr("LOAD_METHOD", "update", lineno=lineno),
+                        Instr("LOAD_FAST", varkwargsname, lineno=lineno),
+                        Instr("CALL", 1, lineno=lineno),
+                        Instr("POP_TOP", lineno=lineno),
+                    ]
+                )
             else:
+                # Python 3.11
                 instrs.extend(
                     [
                         Instr("COPY", 1, lineno=lineno),
@@ -383,13 +396,23 @@ def wrap_bytecode(wrapper, wrapped):
     # Call the wrapper function with the wrapped function, the positional and
     # keyword arguments, and return the result.
     if sys.version_info < (3, 11):
+        # Python < 3.11
         instrs.extend(
             [
                 Instr("CALL_FUNCTION", 3, lineno=lineno),
                 Instr("RETURN_VALUE", lineno=lineno),
             ]
         )
+    elif sys.version_info >= (3, 12):
+        # Python 3.12+
+        instrs.extend(
+            [
+                Instr("CALL", 3, lineno=lineno),
+                Instr("RETURN_VALUE", lineno=lineno),
+            ]
+        )
     else:
+        # Python 3.11
         instrs.extend(
             [
                 Instr("PRECALL", 3, lineno=lineno),
