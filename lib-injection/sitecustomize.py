@@ -5,6 +5,9 @@ from the locally available wheels that are included in the image.
 import os
 import sys
 
+print("lib injection started: %s" % (__file__,))
+print(sys.executable)
+
 
 def _configure_ddtrace():
     # This import has the same effect as ddtrace-run for the current process.
@@ -25,7 +28,7 @@ if "DDTRACE_PYTHON_INSTALL_IN_PROGRESS" not in os.environ:
     try:
         import ddtrace  # noqa: F401
 
-    except (ImportError, ModuleNotFoundError):
+    except Exception:
         import subprocess
 
         print("datadog autoinstrumentation: installing python package")
@@ -50,3 +53,5 @@ if "DDTRACE_PYTHON_INSTALL_IN_PROGRESS" not in os.environ:
     else:
         print("datadog autoinstrumentation: ddtrace already installed, skipping install")
         _configure_ddtrace()
+    del env["DDTRACE_PYTHON_INSTALL_IN_PROGRESS"]
+print("lib injection complete: %s" % (__file__,))
