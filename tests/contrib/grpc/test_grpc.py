@@ -96,7 +96,7 @@ class GrpcTestCase(TracerTestCase):
         assert spans[0].service == "mygrpc"
 
     @TracerTestCase.run_in_subprocess(env_overrides=dict(DD_GRPC_SERVICE="mygrpc", DD_TRACE_SPAN_ATTRIBUTE_SCHEMA="v1"))
-    def test_service_precedence_v0(self):
+    def test_client_service_name_config_env_override_v1(self):
         with grpc.insecure_channel("localhost:%d" % (_GRPC_PORT)) as channel:
             stub = HelloStub(channel)
             response = stub.SayHello(HelloRequest(name="propogator"))
