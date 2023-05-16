@@ -737,4 +737,3 @@ def test_method_service(patch_grpc):
         channel.unary_unary("/pkg.Servicer/Handler")(b"request")
     finally:
         server.stop(None)
- 
