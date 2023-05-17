@@ -28,9 +28,12 @@ if "DDTRACE_PYTHON_INSTALL_IN_PROGRESS" not in os.environ:
     try:
         import ddtrace  # noqa: F401
 
+        print("ddtrace version in lib injection code: {}".format(ddtrace.__version__))
+
     except Exception:
         import subprocess
 
+        print("teheeee import ddtrace failed installing ddtrace in a subprocess rn")
         print("datadog autoinstrumentation: installing python package")
 
         # Set the flag to avoid an infinite loop.
@@ -45,6 +48,10 @@ if "DDTRACE_PYTHON_INSTALL_IN_PROGRESS" not in os.environ:
                 env=env,
                 check=True,
             )
+            print("after subprocess install check ddtrace version")
+            import ddtrace
+
+            print("ddtrace version: {}".format(ddtrace.__version__))
         except BaseException as e:
             print("datadog autoinstrumentation: failed to install python package %s" % str(e))
         else:
